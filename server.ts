@@ -36,7 +36,7 @@ process.on('uncaughtException', (err) => {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
@@ -403,24 +403,42 @@ INSTRUCTIONS:
     res.status(429).json({ error: "Rate limit exceeded" });
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_VITE_DEV === 'true' || (process.env.NODE_ENV !== "production" && !process.env.VERCEL)) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
+    // In production (Vercel), we serve static files from dist
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+  }
+
+  // Handle API routes specifically but fall back to SPA for everything else
+  // Note: Vercel routes handle this via vercel.json, but this is good for local prod test
+  if (process.env.NODE_ENV === "production") {
+    app.get("*", (req, res, next) => {
+      if (req.url.startsWith('/api/')) return next();
+      const distPath = path.join(process.cwd(), "dist");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  // Only listen if we're not being wrapped by a serverless function
+  if (!process.env.VERCEL && process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+
+  return app;
 }
 
-startServer();
+// Export for Vercel
+export { startServer };
+
+// Self-start if run directly
+if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== 'production') {
+  startServer().catch(console.error);
+}
