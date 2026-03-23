@@ -1,7 +1,5 @@
 import express from "express";
 import cors from "cors";
-import { createServer as createViteServer } from "vite";
-import { spawn } from "child_process";
 import path from "path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "url";
@@ -403,30 +401,29 @@ INSTRUCTIONS:
     res.status(429).json({ error: "Rate limit exceeded" });
   });
 
-  if (process.env.NODE_VITE_DEV === 'true' || (process.env.NODE_ENV !== "production" && !process.env.VERCEL)) {
+  // Dev environment logic (Vite)
+  if (!process.env.VERCEL && (process.env.NODE_VITE_DEV === 'true' || process.env.NODE_ENV !== "production")) {
+    console.log("Loading Vite dev server...");
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    // In production (Vercel), we serve static files from dist
+  } 
+  // Local production check (not Vercel)
+  else if (!process.env.VERCEL && process.env.NODE_ENV === "production") {
+    console.log("Serving static files locally from dist...");
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-  }
-
-  // Handle API routes specifically but fall back to SPA for everything else
-  // Note: Vercel routes handle this via vercel.json, but this is good for local prod test
-  if (process.env.NODE_ENV === "production") {
     app.get("*", (req, res, next) => {
       if (req.url.startsWith('/api/')) return next();
-      const distPath = path.join(process.cwd(), "dist");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
   // Only listen if we're not being wrapped by a serverless function
-  if (!process.env.VERCEL && process.env.NODE_ENV !== 'production') {
+  if (!process.env.VERCEL && !process.env.LAMBDA_TASK_ROOT) {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
