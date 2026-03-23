@@ -92,6 +92,14 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
+
+  const handleEditorScroll = () => {
+    if (textareaRef.current && lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+  };
 
   const detectLanguage = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase();
@@ -836,17 +844,22 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex-1 relative code-editor-container overflow-hidden group">
-                  <div className="line-numbers bg-slate-50/30 dark:bg-slate-900/30">
-                    {Array.from({ length: Math.max(25, code.split('\n').length) }).map((_, i) => (
+                <div className="flex-1 relative code-editor-container overflow-hidden group min-h-[500px]">
+                  <div 
+                    ref={lineNumbersRef}
+                    className="line-numbers bg-slate-50/30 dark:bg-slate-900/30 overflow-hidden"
+                  >
+                    {Array.from({ length: Math.max(25, (code || "").split('\n').length) }).map((_, i) => (
                       <div key={i} className="leading-6 text-[11px]">{i + 1}</div>
                     ))}
                   </div>
                   <textarea
+                    ref={textareaRef}
+                    onScroll={handleEditorScroll}
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     placeholder={`Paste your ${language} code here...`}
-                    className="w-full h-full pl-16 pr-4 py-4 bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 dark:text-slate-300 placeholder:text-slate-400/50"
+                    className="w-full h-full pl-16 pr-4 py-4 bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 dark:text-slate-300 placeholder:text-slate-400/50 overflow-auto custom-scrollbar"
                     spellCheck={false}
                   />
                 </div>
@@ -1183,7 +1196,7 @@ export default function App() {
               </div>
             )}
             
-            <div className="glass-card glow-accent bg-slate-900 dark:bg-black p-8 rounded-[2.5rem] overflow-hidden border-slate-800 shadow-2xl relative">
+            <div className="glass-card glow-accent bg-slate-900 dark:bg-black p-8 rounded-[2.5rem] overflow-hidden border-slate-800 shadow-2xl relative min-h-[400px]">
               <div className="absolute top-6 right-8 flex gap-2 opacity-20 group-hover:opacity-100 transition-opacity">
                  <Zap className="w-4 h-4 text-emerald-400 fill-emerald-400" />
               </div>
@@ -1192,7 +1205,7 @@ export default function App() {
                   <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{result.optimizedFiles[activeOptimizedFileIndex].path}</span>
                 </div>
               )}
-              <pre className="font-mono text-sm text-emerald-400/90 overflow-x-auto whitespace-pre-wrap leading-relaxed custom-scrollbar max-h-[1000px] selection:bg-primary/30 mt-8">
+              <pre className="font-mono text-sm text-emerald-400/90 overflow-x-auto whitespace-pre-wrap leading-relaxed custom-scrollbar max-h-none min-h-[400px] selection:bg-primary/30 mt-8">
                 <code>{result.optimizedFiles && result.optimizedFiles.length > 0 ? result.optimizedFiles[activeOptimizedFileIndex].content : result.optimizedCode}</code>
               </pre>
             </div>
