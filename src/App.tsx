@@ -417,28 +417,22 @@ export default function App() {
         setFiles(prev => {
           const existingPaths = new Set(prev.map(p => p.path || p.name));
           const uniqueNew = filteredDropped.filter(f => !existingPaths.has(f.path || f.name));
-          return [...prev, ...uniqueNew];
-        });
-        
-        setNotification({
-          show: true,
-          type: 'confirm',
-          title: 'Project Detected',
-          message: `You dropped ${filteredDropped.length} valid source files. Would you like to analyze this project now?`,
-          onConfirm: () => {
-          setNotification(null);
-          // Briefly wait for state update or use local variable
-          const allFiles = [...files, ...droppedFiles];
+          const allFiles = [...prev, ...uniqueNew];
+          
+          // Start analysis immediately
           const batchedCode = allFiles.map(f => `\n\n// --- File: ${f.path || f.name} ---\n\n${f.content}`).join("");
           const langCounts = allFiles.reduce((acc, curr) => {
             acc[curr.language] = (acc[curr.language] || 0) + 1;
             return acc;
           }, {} as Record<string, number>);
-          const primaryLang = Object.keys(langCounts).reduce((a, b) => langCounts[a] > langCounts[b] ? a : b);
+          const primaryLang = Object.keys(langCounts).length > 0
+            ? Object.keys(langCounts).reduce((a, b) => langCounts[a] > langCounts[b] ? a : b)
+            : 'auto';
+            
           executeBatchAnalysis(batchedCode, primaryLang);
-        }
-      });
-    }
+          return allFiles;
+        });
+      }
   }
 };
 
