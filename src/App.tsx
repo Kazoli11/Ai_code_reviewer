@@ -569,6 +569,34 @@ export default function App() {
       const response = await fetch(`/api/fetch-url?url=${encodeURIComponent(urlInput)}`);
       if (!response.ok) throw new Error("Failed to fetch URL");
       
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        if (data.type === 'project' && data.files && data.files.length > 0) {
+          setFiles(prev => {
+            const existingPaths = new Set(prev.map(p => p.path || p.name));
+            const uniqueNew = data.files.filter((f: any) => !existingPaths.has(f.path || f.name));
+            return [...prev, ...uniqueNew];
+          });
+          
+          // Select the first new file
+          setActiveFileIndex(0);
+          setCode(data.files[0].content);
+          setLanguage(data.files[0].language);
+          setIsProjectMode(true);
+          setShowUrlModal(false);
+          setUrlInput('');
+          
+          setNotification({
+            show: true,
+            type: 'info',
+            title: 'Project Imported',
+            message: `Successfully imported ${data.files.length} files from repository.`
+          });
+          return;
+        }
+      }
+
       const content = await response.text();
       const name = urlInput.split('/').pop() || 'fetched_file';
       const lang = detectLanguage(name);

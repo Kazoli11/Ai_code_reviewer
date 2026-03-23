@@ -50,6 +50,19 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // Simple language detection for backend
+  const detectLanguage = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const sourceExtensions: Record<string, string> = {
+      'py': 'python', 'java': 'java', 'c': 'c', 'cpp': 'cpp', 'cc': 'cpp', 'h': 'cpp',
+      'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+      'go': 'go', 'rs': 'rust', 'rb': 'ruby', 'php': 'php', 'swift': 'swift',
+      'kt': 'kotlin', 'sh': 'bash', 'sql': 'sql', 'html': 'html', 'css': 'css',
+      'json': 'json', 'md': 'markdown', 'txt': 'text'
+    };
+    return (ext && sourceExtensions[ext]) ? sourceExtensions[ext] : 'unsupported';
+  };
+
   // Proxy route to fetch external content
   app.get("/api/fetch-url", async (req, res) => {
     const { url } = req.query;
@@ -62,24 +75,56 @@ async function startServer() {
       if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
         return res.status(400).json({ error: "Invalid protocol" });
       }
+      
       const hostname = urlObj.hostname;
-      if (
-        hostname === 'localhost' || 
-        hostname === '127.0.0.1' || 
-        hostname === '0.0.0.0' || 
-        hostname === '::1' || 
-        hostname.startsWith('10.') || 
-        hostname.startsWith('192.168.') || 
-        hostname.startsWith('172.16.')
-      ) {
-        return res.status(403).json({ error: "Access to private or local IP addresses is blocked." });
-      }
-    } catch (e) {
-      return res.status(400).json({ error: "Invalid URL format" });
-    }
-
-    try {
       const axios = (await import("axios")).default;
+
+      // Special handling for GitHub Repositories
+      if (hostname === 'github.com' && url.split('/').length >= 5) {
+        const parts = urlObj.pathname.split('/').filter(Boolean);
+        const owner = parts[0];
+        const repo = parts[1];
+        
+        // Use GitHub API to get ZIP
+        const zipUrl = `https://api.github.com/repos/${owner}/${repo}/zipball/`;
+        console.log(`Fetching GitHub repo ZIP: ${zipUrl}`);
+        
+        const zipResponse = await axios.get(zipUrl, {
+          responseType: 'arraybuffer',
+          headers: { 'User-Agent': 'AI-Code-Reviewer' }
+        });
+
+        const JSZip = (await import("jszip")).default;
+        const zip = new JSZip();
+        const contents = await zip.loadAsync(zipResponse.data);
+        const files: any[] = [];
+
+        for (const [path, zipEntry] of Object.entries(contents.files)) {
+          if (!zipEntry.dir) {
+            const name = path.split('/').pop() || path;
+            const lang = detectLanguage(name);
+            
+            // Skip binary, unsupported, and common dotfiles/ignored dirs
+            if (lang !== 'unsupported' && 
+                !path.includes('/node_modules/') && 
+                !path.includes('/.git/') &&
+                !path.startsWith('.') &&
+                !path.includes('/.')) {
+              const content = await zipEntry.async('string');
+              files.push({
+                name,
+                content,
+                language: lang,
+                path: path.split('/').slice(1).join('/') // Remove the top-level folder name added by GitHub
+              });
+            }
+          }
+        }
+
+        return res.json({ type: 'project', files });
+      }
+
+      // Default single file fetch
       const response = await axios.get(url, {
         responseType: 'text',
         headers: {
