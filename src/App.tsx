@@ -152,6 +152,13 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'inherit';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [code]);
+
+  useEffect(() => {
     if (language === 'auto' && code.length > 15) {
       const guessed = guessLanguageByContent(code);
       if (guessed !== 'auto') {
