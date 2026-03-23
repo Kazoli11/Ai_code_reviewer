@@ -580,13 +580,6 @@ export default function App() {
           setIsProjectMode(true);
           setShowUrlModal(false);
           setUrlInput('');
-          
-          setNotification({
-            show: true,
-            type: 'info',
-            title: 'Project Imported',
-            message: `Successfully imported ${data.files.length} files from repository.`
-          });
           return;
         }
       }
