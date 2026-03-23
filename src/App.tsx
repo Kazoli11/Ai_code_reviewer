@@ -82,6 +82,7 @@ export default function App() {
   const [isChatTyping, setIsChatTyping] = useState(false);
   const [activeOptimizedFileIndex, setActiveOptimizedFileIndex] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState<{current: number, total: number} | null>(null);
   const [notification, setNotification] = useState<{
     show: boolean;
     type: 'info' | 'error' | 'warning' | 'confirm';
@@ -316,9 +317,6 @@ export default function App() {
   const handleBatchAnalyze = async () => {
     if (files.length === 0) return;
     
-    // Concatenate all project files into a single string with clear file headers
-    const batchedCode = files.map(f => `\n\n// --- File: ${f.path || f.name} ---\n\n${f.content}`).join("");
-    
     // Determine the primary language based on the most common file extension
     const langCounts = files.reduce((acc, curr) => {
       acc[curr.language] = (acc[curr.language] || 0) + 1;
@@ -327,14 +325,120 @@ export default function App() {
     const primaryLang = Object.keys(langCounts).reduce((a, b) => langCounts[a] > langCounts[b] ? a : b);
 
     // Automatically trigger analysis
-    executeBatchAnalysis(batchedCode, primaryLang);
+    executeBatchAnalysis(files, primaryLang);
   };
 
-  const executeBatchAnalysis = (batchedCode: string, primaryLang: string) => {
-    setCode(batchedCode);
-    setIsProjectMode(true);
-    setLanguage(primaryLang);
-    handleAnalyze(batchedCode, primaryLang);
+  const executeBatchAnalysis = async (filesToAnalyze: FileItem[], primaryLang: string) => {
+    // If the project is large, we process iteratively to ensure 100% coverage
+    // and avoid token limit issues with the LLM.
+    if (filesToAnalyze.length > 3) {
+      setIsAnalyzing(true);
+      setIsProjectMode(true);
+      setLanguage(primaryLang);
+      setResult(null);
+      setAnalysisProgress({ current: 0, total: filesToAnalyze.length });
+
+      const combinedResult: AnalysisResult = {
+        language: primaryLang,
+        syntaxErrors: [],
+        logicalIssues: [],
+        optimizations: [],
+        memoryIssues: [],
+        edgeCases: [],
+        optimizedCode: "",
+        optimizedFiles: [],
+        score: 100
+      };
+
+      try {
+        for (let i = 0; i < filesToAnalyze.length; i++) {
+          setAnalysisProgress({ current: i + 1, total: filesToAnalyze.length });
+          const file = filesToAnalyze[i];
+          
+          try {
+            const fileResult = await analyzeCode(file.content, file.language, userApiKey);
+            
+            // Merge results
+            combinedResult.syntaxErrors.push(...(fileResult.syntaxErrors || []).map(e => ({ ...e, file: file.path || file.name })));
+            combinedResult.logicalIssues.push(...(fileResult.logicalIssues || []).map(issue => `[${file.name}] ${issue}`));
+            combinedResult.optimizations.push(...(fileResult.optimizations || []).map(opt => `[${file.name}] ${opt}`));
+            combinedResult.memoryIssues.push(...(fileResult.memoryIssues || []).map(issue => `[${file.name}] ${issue}`));
+            combinedResult.edgeCases.push(...(fileResult.edgeCases || []).map(issue => `[${file.name}] ${issue}`));
+            
+            if (fileResult.optimizedFiles && fileResult.optimizedFiles.length > 0) {
+              combinedResult.optimizedFiles!.push(...fileResult.optimizedFiles);
+            } else {
+              combinedResult.optimizedFiles!.push({
+                path: file.path || file.name,
+                content: fileResult.optimizedCode || file.content
+              });
+            }
+            
+            // Average score
+            combinedResult.score = (combinedResult.score || 100) * i / (i + 1) + (fileResult.score || 100) / (i + 1);
+          } catch (fileError) {
+            console.error(`Failed to analyze file ${file.name}:`, fileError);
+            // Continue with other files but add placeholder for optimized content to keep zip consistent
+            combinedResult.optimizedFiles!.push({
+              path: file.path || file.name,
+              content: file.content
+            });
+          }
+        }
+        
+        combinedResult.score = Math.round(combinedResult.score || 100);
+        setResult(combinedResult);
+        
+        // Add to history
+        const historyItem = {
+          id: Date.now(),
+          language: primaryLang,
+          date: new Date().toLocaleString(),
+          score: combinedResult.score,
+          code: filesToAnalyze.map(f => f.content).join("\n")
+        };
+        setHistory(prev => [historyItem, ...prev].slice(0, 10));
+      } finally {
+        setIsAnalyzing(false);
+        setAnalysisProgress(null);
+      }
+    } else {
+      // Small project: use single batch analysis for better cross-file context
+      const batchedCode = filesToAnalyze.map(f => `\n\n// --- File: ${f.path || f.name} ---\n\n${f.content}`).join("");
+      setCode(batchedCode);
+      setIsProjectMode(true);
+      setLanguage(primaryLang);
+      handleAnalyze(batchedCode, primaryLang);
+    }
+  };
+
+  const downloadAllOptimized = async () => {
+    if (!result || !result.optimizedFiles || result.optimizedFiles.length === 0) return;
+    
+    try {
+      const zip = new JSZip();
+      result.optimizedFiles.forEach(file => {
+        // Ensure path doesn't have leading slash for ZIP
+        const cleanPath = file.path.startsWith('/') ? file.path.substring(1) : file.path;
+        zip.file(cleanPath, file.content);
+      });
+      
+      const content = await zip.generateAsync({type: "blob"});
+      const element = document.createElement("a");
+      element.href = URL.createObjectURL(content);
+      element.download = `optimized_project_${Date.now()}.zip`;
+      document.body.appendChild(element);
+      element.click();
+      document.body.removeChild(element);
+    } catch (error) {
+      console.error("ZIP creation failed:", error);
+      setNotification({
+        show: true,
+        type: 'error',
+        title: 'ZIP Failed',
+        message: 'Failed to create ZIP package of optimized files.'
+      });
+    }
   };
 
   const traverseFileTree = async (entry: any, path = ""): Promise<FileItem[]> => {
@@ -509,6 +613,14 @@ export default function App() {
         setCode(filteredFiles[0].content);
         setLanguage(filteredFiles[0].language);
         setIsProjectMode(true);
+        
+        // Automatically trigger batch optimization for the whole project
+        const langCounts = filteredFiles.reduce((acc, curr) => {
+          acc[curr.language] = (acc[curr.language] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const primaryLang = Object.keys(langCounts).reduce((a, b) => langCounts[a] > langCounts[b] ? a : b);
+        executeBatchAnalysis(filteredFiles, primaryLang);
       }
     });
   };
@@ -549,6 +661,14 @@ export default function App() {
         setCode(newFiles[0].content);
         setLanguage(newFiles[0].language);
         setIsProjectMode(true);
+
+        // Automatically trigger batch optimization for the whole project
+        const langCounts = newFiles.reduce((acc, curr) => {
+          acc[curr.language] = (acc[curr.language] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const primaryLang = Object.keys(langCounts).reduce((a, b) => langCounts[a] > langCounts[b] ? a : b);
+        executeBatchAnalysis(newFiles, primaryLang);
       }
     } catch (error) {
       console.error("Failed to process ZIP", error);
@@ -587,6 +707,14 @@ export default function App() {
             setCode(projectFiles[0].content);
             setLanguage(projectFiles[0].language);
             setIsProjectMode(true);
+
+            // Automatically trigger batch optimization for the whole project
+            const langCounts = projectFiles.reduce((acc, curr) => {
+              acc[curr.language] = (acc[curr.language] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>);
+            const primaryLang = Object.keys(langCounts).reduce((a, b) => langCounts[a] > langCounts[b] ? a : b);
+            executeBatchAnalysis(projectFiles, primaryLang);
           }
         } else {
           throw new Error("Invalid project data received");
@@ -1059,13 +1187,28 @@ export default function App() {
                     <div className="relative">
                       <div className="w-24 h-24 border-4 border-primary/10 border-t-primary rounded-full animate-spin" />
                       <Cpu className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary w-10 h-10 animate-pulse" />
+                      {analysisProgress && (
+                        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-lg">
+                          {Math.round((analysisProgress.current / analysisProgress.total) * 100)}%
+                        </div>
+                      )}
                     </div>
                     <div className="text-center space-y-3">
-                      <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">AI is Reviewing...</h3>
+                      <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                        {analysisProgress ? 'Optimizing Project...' : 'AI is Reviewing...'}
+                      </h3>
                       <div className="flex flex-col gap-1 items-center">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] animate-pulse">Running Security Checks</p>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Profiling Performance</p>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] opacity-40">Analyzing Big O</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] animate-pulse">
+                          {analysisProgress 
+                            ? `Processing file ${analysisProgress.current} folder of ${analysisProgress.total}`
+                            : 'Running Security Checks'}
+                        </p>
+                        {!analysisProgress && (
+                          <>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Profiling Performance</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] opacity-40">Analyzing Big O</p>
+                          </>
+                        )}
                       </div>
                     </div>
                   </motion.div>
@@ -1272,6 +1415,15 @@ export default function App() {
                   <Copy className="w-4 h-4" />
                   COPY CODE
                 </button>
+                {result.optimizedFiles && result.optimizedFiles.length > 1 && (
+                  <button 
+                    onClick={downloadAllOptimized}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white hover:bg-primary/90 rounded-2xl font-black text-xs transition-all shadow-[0_0_20px_rgba(59,130,246,0.3)] active:scale-95"
+                  >
+                    <FileArchive className="w-4 h-4" />
+                    DOWNLOAD ALL (ZIP)
+                  </button>
+                )}
                 <button 
                   onClick={() => {
                     const content = result.optimizedFiles && result.optimizedFiles.length > 0 ? result.optimizedFiles[activeOptimizedFileIndex].content : result.optimizedCode;
@@ -1281,7 +1433,7 @@ export default function App() {
                   className="flex items-center gap-2 px-5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-primary hover:text-white rounded-2xl font-black text-xs transition-all shadow-sm active:scale-95"
                 >
                   <Download className="w-4 h-4" />
-                  DOWNLOAD
+                  SINGLE FILE
                 </button>
               </div>
             </div>
