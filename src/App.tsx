@@ -1627,21 +1627,30 @@ export default function App() {
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-tl-none border border-slate-200 dark:border-slate-700'
                       }`}>
                          {msg.role === 'assistant' ? (
-                           <ReactMarkdown
-                             components={{
-                               code: ({node, ...props}) => <code className="bg-black/10 dark:bg-white/10 px-1 rounded font-mono text-[10px]" {...props} />,
-                               ul: ({children}) => <ul className="list-disc pl-4 space-y-1 my-2">{children}</ul>,
-                               ol: ({children}) => <ol className="list-decimal pl-4 space-y-1 my-2">{children}</ol>,
-                               p: ({children}) => <p className="mb-1 last:mb-0">{children}</p>,
-                               h1: ({children}) => <h1 className="text-sm font-black mb-2">{children}</h1>,
-                               h2: ({children}) => <h2 className="text-xs font-black mb-1">{children}</h2>,
-                               strong: ({children}) => <strong className="font-black text-primary dark:text-primary-light">{children}</strong>
-                             }}
-                           >
-                             {msg.content}
-                           </ReactMarkdown>
+                           <div className="overflow-hidden break-words">
+                             <ReactMarkdown
+                               components={{
+                                 code: ({node, ...props}) => (
+                                   <code className="bg-black/10 dark:bg-white/10 px-1 rounded font-mono text-[10px]" {...props} />
+                                 ),
+                                 pre: ({children}) => (
+                                   <pre className="bg-black/5 dark:bg-white/5 p-2 rounded-lg my-2 overflow-x-auto custom-scrollbar font-mono text-[10px] leading-relaxed border border-black/5 dark:border-white/5">
+                                     {children}
+                                   </pre>
+                                 ),
+                                 ul: ({children}) => <ul className="list-disc pl-4 space-y-1 my-2">{children}</ul>,
+                                 ol: ({children}) => <ol className="list-decimal pl-4 space-y-1 my-2">{children}</ol>,
+                                 p: ({children}) => <p className="mb-1 last:mb-0">{children}</p>,
+                                 h1: ({children}) => <h1 className="text-sm font-black mb-2">{children}</h1>,
+                                 h2: ({children}) => <h2 className="text-xs font-black mb-1">{children}</h2>,
+                                 strong: ({children}) => <strong className="font-black text-primary dark:text-primary-light">{children}</strong>
+                               }}
+                             >
+                               {msg.content}
+                             </ReactMarkdown>
+                           </div>
                          ) : (
-                           msg.content
+                           <p className="break-words">{msg.content}</p>
                          )}
                       </div>
                     </div>
