@@ -1,0 +1,96 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-primary: #6366f1; /* Indigo 500 */
+  --color-primary-dark: #4f46e5; /* Indigo 600 */
+  --color-accent: #10b981; /* Emerald 500 */
+  --color-error: #f43f5e; /* Rose 500 */
+  --color-warning: #f59e0b; /* Amber 500 */
+  --color-surface: #ffffff;
+  --color-surface-dark: #0f172a;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 transition-colors duration-500 selection:bg-primary/20;
+    background-image: radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.05) 0px, transparent 50%),
+                      radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.05) 0px, transparent 50%);
+  }
+  
+  body.dark {
+    @apply bg-[#0b0f1a] text-slate-100;
+    background-image: radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.1) 0px, transparent 50%),
+                      radial-gradient(at 100% 0%, rgba(16, 185, 129, 0.08) 0px, transparent 50%);
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-xl border border-white/40 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] rounded-2xl transition-all duration-300;
+  }
+  
+  .dark .glass-card {
+    @apply bg-slate-900/40 border-slate-800/50 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)];
+  }
+
+  .glass-card-hover {
+    @apply hover:shadow-[0_12px_40px_0_rgba(31,38,135,0.12)] hover:border-primary/30 dark:hover:border-primary/30;
+  }
+  
+  .code-editor-container {
+    position: relative;
+    font-family: var(--font-mono);
+  }
+  
+  .line-numbers {
+    @apply absolute left-0 top-0 bottom-0 w-12 bg-slate-50/50 border-r border-slate-200/50 text-slate-400 text-right pr-3 pt-4 select-none;
+  }
+  
+  .dark .line-numbers {
+    @apply bg-slate-900/50 border-slate-800/50 text-slate-600;
+  }
+
+  /* IDE Window elements */
+  .window-dot {
+    @apply w-3 h-3 rounded-full;
+  }
+
+  .glow-primary {
+    @apply shadow-[0_0_20px_rgba(99,102,241,0.3)];
+  }
+
+  .glow-accent {
+    @apply shadow-[0_0_20px_rgba(16,185,129,0.3)];
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300/50 rounded-full hover:bg-slate-400/50 transition-colors;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-slate-700/50 hover:bg-slate-600/50;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
