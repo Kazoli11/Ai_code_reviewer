@@ -104,23 +104,46 @@ export default function App() {
 
   const detectLanguage = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase();
-    if (ext === 'py') return 'python';
-    if (ext === 'c') return 'c';
-    if (ext === 'cpp' || ext === 'cc' || ext === 'h' || ext === 'cxx') return 'cpp';
-    if (ext === 'java') return 'java';
-    if (ext === 'js' || ext === 'jsx') return 'javascript';
-    if (ext === 'ts' || ext === 'tsx') return 'typescript';
-    if (ext === 'go') return 'go';
-    if (ext === 'rs') return 'rust';
-    if (ext === 'rb') return 'ruby';
-    if (ext === 'php') return 'php';
-    if (ext === 'swift') return 'swift';
-    if (ext === 'kt' || ext === 'kts') return 'kotlin';
-    if (ext === 'sh' || ext === 'bash') return 'bash';
-    if (ext === 'sql') return 'sql';
-    if (ext === 'html') return 'html';
-    if (ext === 'css') return 'css';
-    return 'auto'; // default
+    
+    // Explicitly identify known source file extensions (White-list)
+    const sourceExtensions: Record<string, string> = {
+      'py': 'python',
+      'java': 'java',
+      'c': 'c',
+      'cpp': 'cpp', 'cc': 'cpp', 'h': 'cpp', 'cxx': 'cpp', 'hpp': 'cpp',
+      'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript',
+      'ts': 'typescript', 'tsx': 'typescript',
+      'go': 'go',
+      'rs': 'rust',
+      'rb': 'ruby',
+      'php': 'php',
+      'swift': 'swift',
+      'kt': 'kotlin', 'kts': 'kotlin',
+      'sh': 'bash', 'bash': 'bash',
+      'sql': 'sql',
+      'html': 'html', 'htm': 'html',
+      'css': 'css',
+      'json': 'json',
+      'md': 'markdown',
+      'txt': 'text'
+    };
+
+    if (ext && sourceExtensions[ext]) {
+      return sourceExtensions[ext];
+    }
+
+    // Known binary extensions
+    const binaryExtensions = [
+      'class', 'jar', 'war', 'ear', 'exe', 'dll', 'so', 'dylib', 'bin', 'o', 'obj',
+      'pyc', 'pyo', 'pyd', 'db', 'sqlite', 'tar', 'gz', 'zip', '7z', 'rar',
+      'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'webp', 'pdf', 'doc', 'docx', 'xls', 'xlsx'
+    ];
+    
+    if (ext && binaryExtensions.includes(ext)) {
+      return 'binary';
+    }
+
+    return 'unsupported'; // Changed from 'auto' to 'unsupported' for better filtering
   };
 
   const guessLanguageByContent = (text: string) => {
@@ -153,9 +176,9 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Height is now fixed to 600px (approx 25 lines) with scrollable overflow
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'inherit';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      textareaRef.current.style.height = '600px';
     }
   }, [code]);
 
@@ -316,19 +339,45 @@ export default function App() {
 
   const traverseFileTree = async (entry: any, path = ""): Promise<FileItem[]> => {
     const files: FileItem[] = [];
+    
+    // Skip common ignored folders early
+    const ignoredFolders = ['node_modules', 'dist', 'build', '__pycache__', '.git', '.next', 'target', 'out', 'bin'];
+    if (entry.isDirectory && ignoredFolders.includes(entry.name)) {
+      return [];
+    }
+
     if (entry.isFile) {
       const file = await new Promise<File>((resolve) => entry.file(resolve));
-      const content = await file.text();
+      // Skip very large files (> 500KB) to avoid memory and token issues
+      if (file.size > 500000) return [];
+      
       const lang = detectLanguage(file.name);
-      files.push({
-        name: file.name,
-        path: path + file.name,
-        content,
-        language: lang
-      });
+      if (lang !== 'binary' && lang !== 'unsupported') {
+        const content = await file.text();
+        files.push({
+          name: file.name,
+          path: path + file.name,
+          content,
+          language: lang
+        });
+      }
     } else if (entry.isDirectory) {
       const reader = entry.createReader();
-      const entries = await new Promise<any[]>((resolve) => reader.readEntries(resolve));
+      const entries = await new Promise<any[]>((resolve, reject) => {
+        const results: any[] = [];
+        const readEntries = () => {
+          reader.readEntries((newEntries: any[]) => {
+            if (newEntries.length === 0) {
+              resolve(results);
+            } else {
+              results.push(...newEntries);
+              readEntries();
+            }
+          }, reject);
+        };
+        readEntries();
+      });
+
       for (const child of entries) {
         const childFiles = await traverseFileTree(child, path + entry.name + "/");
         files.push(...childFiles);
@@ -354,13 +403,29 @@ export default function App() {
     }
 
     if (droppedFiles.length > 0) {
-      setFiles(prev => [...prev, ...droppedFiles]);
-      setNotification({
-        show: true,
-        type: 'confirm',
-        title: 'Project Detected',
-        message: `You dropped ${droppedFiles.length} files. Would you like to analyze this project now?`,
-        onConfirm: () => {
+      // Filter out binary files and common ignored folders
+      const filteredDropped = droppedFiles.filter(f => 
+        f.language !== 'binary' && 
+        !f.path?.includes('/node_modules/') &&
+        !f.path?.includes('/dist/') &&
+        !f.path?.includes('/build/') &&
+        !f.path?.includes('/__pycache__/') &&
+        !f.path?.includes('/.git/')
+      );
+
+      if (filteredDropped.length > 0) {
+        setFiles(prev => {
+          const existingPaths = new Set(prev.map(p => p.path || p.name));
+          const uniqueNew = filteredDropped.filter(f => !existingPaths.has(f.path || f.name));
+          return [...prev, ...uniqueNew];
+        });
+        
+        setNotification({
+          show: true,
+          type: 'confirm',
+          title: 'Project Detected',
+          message: `You dropped ${filteredDropped.length} valid source files. Would you like to analyze this project now?`,
+          onConfirm: () => {
           setNotification(null);
           // Briefly wait for state update or use local variable
           const allFiles = [...files, ...droppedFiles];
@@ -374,7 +439,8 @@ export default function App() {
         }
       });
     }
-  };
+  }
+};
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -423,11 +489,22 @@ export default function App() {
     });
 
     Promise.all(promises).then(() => {
-      const filteredFiles = newFiles.filter(f => 
-        SUPPORTED_LANGUAGES.includes(f.language)
-      );
+      // Filter out binary and unsupported files, and skip common ignored folders
+      const filteredFiles = newFiles.filter(f => {
+        const isSupported = f.language !== 'binary' && f.language !== 'unsupported';
+        const isIgnoredFolder = ['node_modules', 'dist', 'build', '__pycache__', '.git', 'target', 'out', 'bin'].some(folder => 
+            f.path?.split('/').includes(folder)
+        );
+        return isSupported && !isIgnoredFolder;
+      });
+
+      // Prevent duplicates by path
       if (filteredFiles.length > 0) {
-        setFiles(filteredFiles);
+        setFiles(prev => {
+          const existingPaths = new Set(prev.map(p => p.path || p.name));
+          const uniqueNew = filteredFiles.filter(f => !existingPaths.has(f.path || f.name));
+          return [...prev, ...uniqueNew];
+        });
         setActiveFileIndex(0);
         setCode(filteredFiles[0].content);
         setLanguage(filteredFiles[0].language);
@@ -451,7 +528,7 @@ export default function App() {
           const name = path.split('/').pop() || path;
           const lang = detectLanguage(name);
           
-          if (SUPPORTED_LANGUAGES.includes(lang)) {
+          if (lang !== 'binary' && !path.includes('/node_modules/') && !path.includes('/dist/') && !path.includes('/build/')) {
             newFiles.push({
               name,
               content,
@@ -463,7 +540,11 @@ export default function App() {
       }
 
       if (newFiles.length > 0) {
-        setFiles(newFiles);
+        setFiles(prev => {
+          const existingPaths = new Set(prev.map(p => p.path || p.name));
+          const uniqueNew = newFiles.filter(f => !existingPaths.has(f.path || f.name));
+          return [...prev, ...uniqueNew];
+        });
         setActiveFileIndex(0);
         setCode(newFiles[0].content);
         setLanguage(newFiles[0].language);
@@ -815,7 +896,7 @@ export default function App() {
             )}
 
             {/* Left Side: Editor */}
-            <div className={`${isProjectMode ? 'lg:col-span-6' : 'lg:col-span-6'} space-y-4`}>
+            <div className={`${isProjectMode ? 'lg:col-span-9' : 'lg:col-span-6'} space-y-4`}>
               <div className="glass-card glow-primary overflow-hidden flex flex-col min-h-[600px] border-slate-200/60 dark:border-slate-800/60">
                 {/* Window Header */}
                 <div className="bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur-md px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
@@ -852,10 +933,10 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex-1 relative code-editor-container group min-h-[500px]">
+                <div className="flex-1 relative code-editor-container group h-[600px] overflow-hidden">
                   <div 
                     ref={lineNumbersRef}
-                    className="line-numbers bg-slate-50/30 dark:bg-slate-900/30 py-8 font-mono"
+                    className="line-numbers bg-slate-50/30 dark:bg-slate-900/30 py-8 font-mono h-full overflow-hidden"
                   >
                     {Array.from({ length: Math.max(25, (code || "").split('\n').length) }).map((_, i) => (
                       <div key={i} className="leading-6 text-[11px] pr-3">{i + 1}</div>
@@ -864,18 +945,11 @@ export default function App() {
                   <textarea
                     ref={textareaRef}
                     value={code}
-                    onChange={(e) => {
-                      setCode(e.target.value);
-                      e.target.style.height = 'inherit';
-                      e.target.style.height = `${e.target.scrollHeight}px`;
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.height = 'inherit';
-                      e.target.style.height = `${e.target.scrollHeight}px`;
-                    }}
+                    onChange={(e) => setCode(e.target.value)}
+                    onScroll={handleEditorScroll}
+                    className="code-textarea w-full h-full pl-16 pr-4 py-8 bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 dark:text-slate-300 placeholder:text-slate-400/50 overflow-y-auto"
                     placeholder={`Paste your ${language} code here...`}
                     wrap="off"
-                    className="w-full min-h-[600px] pl-16 pr-4 py-8 bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 dark:text-slate-300 placeholder:text-slate-400/50 overflow-hidden"
                     spellCheck={false}
                   />
                 </div>
@@ -898,20 +972,13 @@ export default function App() {
                       </>
                     )}
                   </button>
-                  <button 
-                    onClick={handleAnalyze}
-                    disabled={isAnalyzing || !code}
-                    className="flex-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-750 disabled:opacity-50 transition-all active:scale-[0.98]"
-                  >
-                    <Zap className="w-4 h-4 text-warning" />
-                    <span>Quick Optimize</span>
-                  </button>
                 </div>
+
               </div>
             </div>
 
             {/* Right Side: Results */}
-            <div className={`${isProjectMode ? 'lg:col-span-3' : 'lg:col-span-6'} space-y-6`}>
+            <div className={`${isProjectMode ? 'lg:col-span-12' : 'lg:col-span-6'} space-y-6`}>
               <AnimatePresence mode="wait">
                 {languageError ? (
                   <motion.div 
