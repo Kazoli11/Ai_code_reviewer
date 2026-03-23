@@ -417,22 +417,28 @@ export default function App() {
         setFiles(prev => {
           const existingPaths = new Set(prev.map(p => p.path || p.name));
           const uniqueNew = filteredDropped.filter(f => !existingPaths.has(f.path || f.name));
-          const allFiles = [...prev, ...uniqueNew];
-          
-          // Start analysis immediately
+          return [...prev, ...uniqueNew];
+        });
+        
+        setNotification({
+          show: true,
+          type: 'confirm',
+          title: 'Project Detected',
+          message: `You dropped ${filteredDropped.length} valid source files. Would you like to analyze this project now?`,
+          onConfirm: () => {
+          setNotification(null);
+          // Briefly wait for state update or use local variable
+          const allFiles = [...files, ...droppedFiles];
           const batchedCode = allFiles.map(f => `\n\n// --- File: ${f.path || f.name} ---\n\n${f.content}`).join("");
           const langCounts = allFiles.reduce((acc, curr) => {
             acc[curr.language] = (acc[curr.language] || 0) + 1;
             return acc;
           }, {} as Record<string, number>);
-          const primaryLang = Object.keys(langCounts).length > 0
-            ? Object.keys(langCounts).reduce((a, b) => langCounts[a] > langCounts[b] ? a : b)
-            : 'auto';
-            
+          const primaryLang = Object.keys(langCounts).reduce((a, b) => langCounts[a] > langCounts[b] ? a : b);
           executeBatchAnalysis(batchedCode, primaryLang);
-          return allFiles;
-        });
-      }
+        }
+      });
+    }
   }
 };
 
@@ -563,42 +569,47 @@ export default function App() {
       const response = await fetch(`/api/fetch-url?url=${encodeURIComponent(urlInput)}`);
       if (!response.ok) throw new Error("Failed to fetch URL");
       
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
+      const contentType = response.headers.get("content-type");
+      
+      if (contentType && contentType.includes("application/json")) {
         const data = await response.json();
-        if (data.type === 'project' && data.files && data.files.length > 0) {
-          setFiles(prev => {
-            const existingPaths = new Set(prev.map(p => p.path || p.name));
-            const uniqueNew = data.files.filter((f: any) => !existingPaths.has(f.path || f.name));
-            return [...prev, ...uniqueNew];
-          });
+        
+        if (data.type === 'project' && Array.isArray(data.files)) {
+          // Handle multi-file project from GitHub
+          const projectFiles = data.files.map((f: any) => ({
+            ...f,
+            language: detectLanguage(f.name)
+          }));
           
-          // Select the first new file
-          setActiveFileIndex(0);
-          setCode(data.files[0].content);
-          setLanguage(data.files[0].language);
-          setIsProjectMode(true);
-          setShowUrlModal(false);
-          setUrlInput('');
-          return;
+          if (projectFiles.length > 0) {
+            setFiles(projectFiles);
+            setActiveFileIndex(0);
+            setCode(projectFiles[0].content);
+            setLanguage(projectFiles[0].language);
+            setIsProjectMode(true);
+          }
+        } else {
+          throw new Error("Invalid project data received");
         }
+      } else {
+        // Handle single file (text)
+        const content = await response.text();
+        const name = urlInput.split('/').pop() || 'fetched_file';
+        const lang = detectLanguage(name);
+
+        const newFile: FileItem = {
+          name,
+          content,
+          language: lang
+        };
+
+        setFiles([newFile]);
+        setActiveFileIndex(0);
+        setCode(content);
+        setLanguage(lang);
+        setIsProjectMode(false);
       }
-
-      const content = await response.text();
-      const name = urlInput.split('/').pop() || 'fetched_file';
-      const lang = detectLanguage(name);
-
-      const newFile: FileItem = {
-        name,
-        content,
-        language: lang
-      };
-
-      setFiles([newFile]);
-      setActiveFileIndex(0);
-      setCode(content);
-      setLanguage(lang);
-      setIsProjectMode(false);
+      
       setShowUrlModal(false);
       setUrlInput('');
     } catch (error: any) {
