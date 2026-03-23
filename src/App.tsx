@@ -844,10 +844,10 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex-1 relative code-editor-container overflow-hidden group min-h-[500px]">
+                <div className="flex-1 relative code-editor-container group min-h-[500px]">
                   <div 
                     ref={lineNumbersRef}
-                    className="line-numbers bg-slate-50/30 dark:bg-slate-900/30 overflow-hidden py-8 font-mono"
+                    className="line-numbers bg-slate-50/30 dark:bg-slate-900/30 py-8 font-mono"
                   >
                     {Array.from({ length: Math.max(25, (code || "").split('\n').length) }).map((_, i) => (
                       <div key={i} className="leading-6 text-[11px] pr-3">{i + 1}</div>
@@ -855,12 +855,19 @@ export default function App() {
                   </div>
                   <textarea
                     ref={textareaRef}
-                    onScroll={handleEditorScroll}
                     value={code}
-                    onChange={(e) => setCode(e.target.value)}
+                    onChange={(e) => {
+                      setCode(e.target.value);
+                      e.target.style.height = 'inherit';
+                      e.target.style.height = `${e.target.scrollHeight}px`;
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.height = 'inherit';
+                      e.target.style.height = `${e.target.scrollHeight}px`;
+                    }}
                     placeholder={`Paste your ${language} code here...`}
                     wrap="off"
-                    className="w-full h-full pl-16 pr-4 py-8 bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 dark:text-slate-300 placeholder:text-slate-400/50 overflow-auto custom-scrollbar"
+                    className="w-full min-h-[600px] pl-16 pr-4 py-8 bg-transparent resize-none focus:outline-none font-mono text-sm leading-6 dark:text-slate-300 placeholder:text-slate-400/50 overflow-hidden"
                     spellCheck={false}
                   />
                 </div>
